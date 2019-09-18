@@ -1,0 +1,22 @@
+{
+    "definitions": {
+        "version": "ads:v"
+    },
+    "server": {
+        "version": "ax121:v",
+        "roomSpeed": 50,
+        "room": {
+            "width": 2000,
+            "height": 2000,
+            "shape": 4,
+            "regions": [
+              {
+                "position": [0, 0],
+                "shape": 4,
+                "radius": 85,
+                "color": "#FF00004D"
+              }
+            ]
+        }
+    }
+}
