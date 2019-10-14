@@ -44,7 +44,7 @@ const ActiveChunkAccess = {
     const accessor = GenerateChunkAccessor(chunk);
     return (ActiveChunkArray[accessor[0]] & accessor[1]) !== 0;
   }
-}
+};
 
 const ChunkColumnArray = new Int16Array(CONFIG.room.width / CONFIG.chunkSize), ChunkRowArray = new Int16Array(CONFIG.room.height / CONFIG.chunkSize);
 let column = 0, row = 0;
@@ -673,6 +673,7 @@ const Entity = (definition, x, y, flags = {}) => {
     return entityInfo;
     */
 }
+global.Entity = Entity;
 
 global.Callbacks[0].push([]);
 global.Callbacks[1].WaitForPrimaryLoop = () => {
@@ -681,6 +682,7 @@ global.Callbacks[1].WaitForPrimaryLoop = () => {
   });
 }
 const EntityGetter = (id) => EntityGet[id];
+global.EntityGetter = EntityGetter;
 const Loops = {};
 Loops.Primary = () => {
   ActiveChunkAccess.Refresh();
@@ -714,6 +716,7 @@ for (let i = 0, length = zones[1].length; i < length; i++) {
   Loops.Engines.push(setInterval(() => zones[1][i][0](Room.zones, zones[1][i][3]), zones[1][i][1]));
 }
 Loops.Primary();
+global.Loops = Loops;
 
 // WEB SERVER
 const Socket = (() => {

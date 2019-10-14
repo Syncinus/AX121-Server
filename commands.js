@@ -69,7 +69,7 @@ const Commands = {
                     if (!isNaN(args[j][1])) {
                         args[j][1] = Number(args[j][1]);
                     }
-                    feed[2][args[j][0]] = args[j][1];
+                    feed[2][args[j][0]] = Commands.Methods.GlobalVariableParser(args[j][1]);
                 }
             } else {
                 let flag = "";
@@ -116,13 +116,13 @@ const Commands = {
         for (const requirementArgument in command.requirements.arguments) {
             if (typeof command.requirements.arguments[requirementArgument] === "function") {
                 if (!command.requirements.arguments[requirementArgument](feed[2][requirementArgument])) {
-                    util.error("Argument " + requirementFlag + " isn't at an acceptable value to execute command " + '"' + command.commandName + '"');
+                    util.error("Argument " + requirementArgument + " isn't at an acceptable value to execute command " + '"' + command.commandName + '"');
                     accepted = false;
                     break; 
                 }
             } else {
                 if (feed[2][requirementFlag] != command.requirements.arguments[requirementArgument]) {
-                    util.error("Argument " + requirementFlag + " isn't at an acceptable value to execute command " + '"' + command.commandName + '"');
+                    util.error("Argument " + requirementArgument + " isn't at an acceptable value to execute command " + '"' + command.commandName + '"');
                     accepted = false;
                     break; 
                 }
@@ -133,13 +133,11 @@ const Commands = {
                 if (!command.requirements.primary(feed[1])) {
                     util.error("Primary argument isn't an acceptable value to execute command " + '"' + command.commandName + '"');
                     accepted = false;
-                    break;
                 }
             } else {
                 if (feed[1] != command.requirements.primary) {
                     util.error("Primary argument isn't an acceptable value to execute command " + '"' + command.commandName + '"');
                     accepted = false;
-                    break; 
                 }
             }
         }
@@ -151,6 +149,18 @@ const Commands = {
         }
     },
     Methods: {
+        GlobalVariableParser: (input) => {
+            if (input.startsWith("{") && input.endsWith("}")) {
+                input = input.substring(input.indexOf("{") + 1, input.indexOf("}")).split(",");
+                let object = global;
+                for (let i = 0, length = input.length; i < length; i++) {
+                    object = object[input[i]];
+                }
+                return object;
+            } else {
+                return input;
+            }
+        },
         GetCommand: (command) => {
             if (command.includes(":")) {
                 const info = command.split(":"), find = info[0].split(".");
@@ -247,17 +257,20 @@ Commands.Command = (
 }
 
 Commands.Command(
-    "hello",
+    "spawn",
     {
         arg1: 10,
         arg2: 20
     },
-    ({flags, main, args, info}) => {
-
+    ({main, args}) => {
+        
     },
     {
         flags: {
-            "access-level": (value) => value >= 1
+            "access-level": (value) => value >= 2
+        },
+        arguments: {
+            "arg1": (value) => value == 10
         }
     }
 );
@@ -272,6 +285,8 @@ global.commandModule = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
+// FIX A PROBLEM WITH NODEMON
+global.ten = 10;
 let previousInput = "";
 global.commandModule.on("line", (input) => {
     if (input !== previousInput) {
