@@ -65,6 +65,14 @@ const Component = (() => {
           attached = original.configuration.attached;
         }
       }
+      for (const trigger in triggers) {
+        if (triggers[trigger].cache == null) {
+          triggers[trigger].cache = {};
+        }
+        if (triggers[trigger].execute == null) {
+          triggers[trigger].execute = {};
+        }
+      }
       const component = {
         name,
         type,
@@ -219,12 +227,36 @@ Component.Component({
     name: ""
   },
   properties: {
-    test: TypedArrayVariable("int8", 2)
+    thing: SyncedVariable("int8", 10),
+    otherarraything: SyncedArrayVariable("int32", 2),
+    arraything: SyncedArrayVariable("int16", 4),
+    lastthing: 10
   },
   triggers: {
     update: ({componentInterface, zoneInterface}) => {
       const info = componentInterface.getComponent("info");
-      //console.log(info.test);
+      if (info.thing !== info.lastthing) {
+        console.log(info.thing);
+        info.thing = info.thing + 1;
+        info.lastthing = info.thing;
+        info.arraything[0] += 1;
+        console.log(info.arraything);
+      }
+    }
+  },
+  client: {
+    triggers: {
+      window: {
+        keydown: function() {
+          console.log("a key was down");
+          console.log(this);
+          console.log(this.thing);
+          console.log(this.blocks);
+          console.log(this.arraything.join(","));
+          this.arraything[0] += 20;
+          this.thing += 1;
+        }
+      }
     }
   }
 }, {});
@@ -248,7 +280,7 @@ Component.Component({
   properties: {
     camera: [0, 0]
   },
-  compilation: function(construct, definition, information, sharedCache) {
+  compilation: function({instance, construct, information, shareCache}) {
     const points = [];
     let angle = 0;
     if (!(information.shape % 2)) {
@@ -264,10 +296,10 @@ Component.Component({
     this.rendered = Utility.RenderBlocks.Create(information.color, [0, 0], information.size, 0, points);
   },
   triggers: {
-    attachment: function({componentInterface, zoneInterface}) {
-      componentInterface.renderBlocks.addData(this.sharedCache.rendered);
+    attachment: function({componentInterface, renderBlocks}) {
+      renderBlocks.addData(this.sharedCache.rendered);
     },
-    update: function({componentInterface, zoneInterface}) {
+    update: function({componentInterface, renderBlocks}) {
       const transform = componentInterface.getComponent("transform"), renderer = componentInterface.getComponent("testRenderer");
       const distance = Math.sqrt(Math.pow(transform.position[0] - renderer.camera[0], 2) + Math.pow(transform.position[1] - renderer.camera[1], 2));
       if (distance > 0) {
@@ -276,8 +308,8 @@ Component.Component({
         renderer.camera[0] += v * Math.cos(dir);
         renderer.camera[1] += v * Math.sin(dir);
       }
-      componentInterface.renderBlocks.position(transform.position);
-      componentInterface.renderBlocks.exportData();
+      renderBlocks.position(transform.position);
+      renderBlocks.exportData();
     }
   }
 }, {});

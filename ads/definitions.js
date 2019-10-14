@@ -28,7 +28,7 @@ ADS.Definition = (name, {
   for (let i = 0, length = components.length; i < length; i++) {
     const add = ADS.Components.find((component) => component.name === components[i]);
     if (add != null) {
-      definition.components.push(add);
+      definition.components.push(util.Utility.Clone(add, true));
     } else {
       throw new Error("Component " + components[i] + " does not exist!");
     }
@@ -65,7 +65,7 @@ ADS.EngineFunction = (name, {
 /// <DEFINITIONS>
 ///
 ADS.Definition("basic", {
-  components: ["info", "testRenderer", "entityTransform", "testMovement"]
+  components: ["info", "testRenderer", "entityTransform"]
 }, {
   info: {
     label: "Basic Tank"
@@ -73,7 +73,7 @@ ADS.Definition("basic", {
   testRenderer: {
     shape: 4,
     size: 10,
-    fov: 100,
+    fov: 10,
     color: "#FF0000"
   }
 });

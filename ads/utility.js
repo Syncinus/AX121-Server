@@ -38,8 +38,12 @@ exports.Variables = {
       return false;
     }
   },
-  VariableOverlap: (value, variable) => {
-    variable[1] = Utility.Overlap(variable[1], value);
+  VariableOverlap: (section, name, variable) => {
+    if (section != null) {
+      if (section[name] != null) {
+        variable[1] = Utility.Overlap(variable[1], section[name]);
+      }
+    }
     return variable;
   },
   DynamicVariable: (value) => [Identifiers.DynamicVariable, value],
@@ -66,31 +70,32 @@ exports.Variables = {
   },
   DynamicOrder: (value) => {
     if (value[1] == null) {
-      return 2;
+      return 7;
     }
     switch (typeof value[1]) {
-      case "function": return 0;
-      case "undefined": return 1;
-      case "object": return 2;
-      case "symbol": return 3;
-      case "string": return 4;
-      case "boolean": return 5;
-      case "bigint": return 6;
-      case "number": return 7;
+      case "number": return 0;
+      case "bigint": return 1;
+      case "boolean": return 2;
+      case "string": return 3;
+      case "symbol": return 4;
+      case "object": return 5;
+      case "function": return 6;
+
+      case "undefined": return 8;
     }
   },
   TypedOrder: (value) => {
     switch (value[2]) {
-      case "int8": return 0;
-      case "uint8": return 1;
-      case "int16": return 2;
-      case "uint16": return 3;
-      case "int32": return 4;
-      case "uint32": return 5;
-      case "float32": return 6;
-      case "float64": return 7;
-      case "bigint64": return 8;
-      case "biguint64": return 9;
+      case "biguint64": return 0;
+      case "bigint64": return 1;
+      case "float64": return 2;
+      case "float32": return 3;
+      case "uint32": return 4;
+      case "int32": return 5;
+      case "uint16": return 6;
+      case "int16": return 7;
+      case "uint8": return 8;
+      case "int8": return 9;
     }
   }
 };
@@ -105,7 +110,7 @@ exports.Template = (templates, definition) => {
 
 const TypedCalculationMemory = new Uint8Array(4);
 const RoundToNearestBytes = (bytes, size) => Math.ceil(bytes / size) * size;
-const SubmitTypedArray = (buffer, currentType) => {
+/*const SubmitTypedArray = (buffer, currentType) => {
   switch (currentType) {
     case "biguint64": return new BigUint64Array(buffer, RoundToNearestBytes(TypedCalculationMemory[1], 4));
     case "bigint64": return new BigInt64Array(buffer, RoundToNearestBytes(TypedCalculationMemory[1], 8));
@@ -118,8 +123,8 @@ const SubmitTypedArray = (buffer, currentType) => {
     case "uint8": return new Uint8Array(buffer, RoundToNearestBytes(TypedCalculationMemory[1], 1));
     case "int8": return new Int8Array(buffer, RoundToNearestBytes(TypedCalculationMemory[1], 1));
   }
-}
-const GenerateTypedArray = (buffer, currentType, offset, length) => {
+}*/
+const GenerateTypedArray = (buffer, currentType, offset, length = undefined) => {
   switch (currentType) {
     case "biguint64": return new BigUint64Array(buffer, offset, length);
     case "bigint64": return new BigInt64Array(buffer, offset, length);
@@ -133,23 +138,396 @@ const GenerateTypedArray = (buffer, currentType, offset, length) => {
     case "int8": return new Int8Array(buffer, offset, length);
   }
 }
-const CompareTwo = (a, b) => {
-  if (a > b) {
-    return 1;
-  } else if (b > a) {
-    return -1;
-  } else {
-    return 0; 
+const TotalOrder = (variable) => {
+  switch (variable[2][0]) {
+    case Identifiers.TypedVariable:
+    case Identifiers.TypedArrayVariable:
+    case Identifiers.SyncedVariable:
+    case Identifiers.SyncedArrayVariable: {
+      return (exports.Variables.VariableOrder(variable[2]) * 10) + exports.Variables.TypedOrder(variable[2]);
+    }
+    case Identifiers.DynamicVariable: {
+      return (exports.Variables.VariableOrder(variable[2]) * 10) + exports.Variables.DynamicOrder(variable[2]);
+    }
+    case Identifiers.FunctionTemplate: {
+      return (exports.Variables.VariableOrder(variable[2]) * 10);
+    }
   }
 }
+const GenerateDataStorage = (buffer, generation) => {
+  const storage = [[]];
+  for (let i = 0, length = generation[0].length; i < length; i++) {
+    storage[0].push(Utility.Clone(generation[0][i], true));
+  }
+  for (let i = 1, length = generation.length; i < length; i++) {
+    storage.push(GenerateTypedArray(buffer, generation[i][0], generation[i][1]));
+  }
+  return storage;
+}
+const ReferenceDataBuilder = (componentGenerator, dataStorage, buffer, syncedVariableModule) => {
+  const referenceData = {};
+  for (let i = 0, length = componentGenerator.length; i < length; i++) {
+    if ((componentGenerator[i][1] & (1 << 0)) === 0) {
+      Object.defineProperty(referenceData, componentGenerator[i][0], {
+        configurable: true,
+        enumerable: true,
+        get: () => dataStorage[componentGenerator[i][2]][componentGenerator[i][3]],
+        set: (value) => dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = value
+      });
+    } else {
+      if ((componentGenerator[i][1] & (1 << 1)) !== 0) {
+        let typedArray = GenerateTypedArray(buffer, componentGenerator[i][2], componentGenerator[i][3], componentGenerator[i][4]);
+        if ((componentGenerator[i][1] & (1 << 2)) !== 0) {
+          const syncedVariableId = syncedVariableModule[0].length;
+          syncedVariableModule[0].push((value, index) => {
+            typedArray[index] = value;
+          });
+          syncedVariableModule[1](0, syncedVariableId, -1, typedArray, componentGenerator[i][0]);
+          const syncedArrayHandler = {
+            get: (target, property, receiver) => {
+              return Reflect.get(target, property, receiver);
+            },
+            set: (target, property, value) => {
+              syncedVariableModule[1](1, syncedVariableId, property, value);
+              return Reflect.set(target, property, value);
+            }
+          }, proxy = new Proxy(typedArray, syncedArrayHandler);
+          Object.defineProperty(referenceData, componentGenerator[i][0], {
+            configurable: true,
+            enumerable: true,
+            get: () => proxy,
+            set: (value) => {
+              throw new Error("Cannot set a SyncedArray on a compiled definition");
+            }
+          });
+        } else {
+          Object.defineProperty(referenceData, componentGenerator[i][0], {
+            configurable: true,
+            enumerable: true,
+            get: () => typedArray,
+            set: (value) => {
+              throw new Error("Cannot set a TypedArray on a compiled definition");
+            }
+          });
+        }
+      } else {
+        if ((componentGenerator[i][1] & (1 << 2)) !== 0) {
+          dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = componentGenerator[i][4];
+          const syncedVariableId = syncedVariableModule[0].length;
+          syncedVariableModule[0].push((value) => {
+            dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = value;
+          });
+          syncedVariableModule[1](0, syncedVariableId, null, componentGenerator[i][4], componentGenerator[i][0]);
+          Object.defineProperty(referenceData, componentGenerator[i][0], {
+            configurable: true,
+            enumerable: true,
+            get: () => dataStorage[componentGenerator[i][2]][componentGenerator[i][3]],
+            set: (value) => {
+              dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = value;
+              syncedVariableModule[1](1, syncedVariableId, null, value);
+            }
+          });
+        } else {
+          dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = componentGenerator[i][4];
+          Object.defineProperty(referenceData, componentGenerator[i][0], {
+            configurable: true,
+            enumerable: true,
+            get: () => dataStorage[componentGenerator[i][2]][componentGenerator[i][3]],
+            set: (value) => dataStorage[componentGenerator[i][2]][componentGenerator[i][3]] = value
+          });
+        }
+      }
+    }
+  }
+  return referenceData;
+}
+
 exports.Compile = (components, definition, globalCache, zones) => {
+  let byteCount = 0, byteRound = 0;
+  const construct = [
+    (client, entityId, room, interfaceGenerator) => {
+      const instance = {
+        entityId: entityId
+      }, buffer = new ArrayBuffer(byteCount), dataStorage = GenerateDataStorage(buffer, construct[1][0]);
+      if (client != null) {
+        instance.syncedVariableModule = [
+          [], // SET SYNCEDVARIABLES
+          (flag, syncedVariableId, index = null, value, name) => {
+            if (flag == 0) {
+              // ADD
+              if (index != null) {
+                client.injection.addArraySync(syncedVariableId, name, value);
+              } else {
+                client.injection.addSync(syncedVariableId, name, value);
+              }
+            } else if (flag == 1) {
+              // UPDATE
+              if (index != null) {
+                client.injection.updateArraySync(syncedVariableId, value, index);
+              } else {
+                client.injection.updateSync(syncedVariableId, value);
+              }
+            } else if (flag == 2) {
+              // REMOVE
+              client.injection.removeSync(syncedVariableId);
+            }
+          } // SYNC SYNCEDVARIABLES
+        ];
+        if (construct[2][0].length > 0) {
+          for (let i = 0, length = construct[2][0].length; i < length; i += 2) {
+            client.injection.addClient(construct[2][0][i][0], construct[2][0][i][1], construct[2][0][i][2]);
+          }
+        }
+      }
+      for (let i = 0, length = construct[2][2].length; i < length; i++) {
+        construct[2][2][i](entityId, instance);
+      }
+      const interfaces = interfaceGenerator(instance, construct[2][1]);
+      for (const trigger in construct[2][1]) {
+        for (let i = 0, length = construct[2][1][trigger].length; i < length; i++) {
+          construct[2][1][trigger][i].cache[entityId] = construct[2][1][trigger][i].cacheInstance({}, entityId);
+          construct[2][1][trigger][i].execute[entityId] = (args) => {
+            construct[2][1][trigger][i].apply(construct[2][1][trigger][i].cache[entityId], [interfaces].concat(args));
+          }
+        }
+      }
+      for (let i = 0, length = construct[1][1].length; i < length; i++) {
+        construct[1][1][i](instance, dataStorage, buffer, instance.syncedVariableModule);
+      }
+      /*const renderBlocks = {
+
+      };
+      const zoneInterface = {
+
+      };
+      const componentInterface = {
+        getComponent: (component) => instance[component],
+        checkComponent: (component) => instance[component] != null,
+        // IN THE FUTURE ADD IN ADDCOMPONENT AND REMOVECOMPONENT METHODS
+        instance: () => instance,
+        trigger: (method, args) => {
+          for (let i = 0, length = construct[2][1][method].length; i < length; i++) {
+            construct[2][1][method][i].apply(construct[2][1][method][i].cache[entityId], ({componentInterface, zoneInterface, renderBlocks}.concat(args)));
+          }
+        }
+      };*/
+
+      //instance.trigger = (method, ...args) => componentInterface.trigger(method, args);
+      return instance;
+    }, // BUILD
+    [[[]], []], // DATASTORAGE + REFERENCE DATA
+    [[], {}, []], // CLIENTSIDE METHODS + TRIGGERS + GENERATION
+    {} // METHODS
+  ],
+  combinedEntries = [],
+  clientMethodIndices = {
+    window: {}
+  };
+  exports.DependencyInjection(components, definition.components);
+  for (let i = 0, length = definition.components.length; i < length; i++) {
+    const componentGenerator = [], information = {};
+    for (const field in definition.components[i].fields) {
+    
+      if (!exports.Variables.VariableCheck(definition.components[i].fields[field])) {
+        definition.components[i].fields[field] = exports.Variables.DynamicVariable(definition.components[i].fields[field]);
+      } else {
+        if (definition.components[i].fields[field][0] === Identifiers.TypedVariable || definition.components[i].fields[field][0] === Identifiers.SyncedVariable) {
+          const typeBytes = exports.TypeBytes(definition.components[i].fields[field][2]);
+          if (typeBytes > byteRound) {
+            byteRound = typeBytes;
+          }
+          byteCount += typeBytes;
+        } else if (definition.components[i].fields[field][0] === Identifiers.TypedArrayVariable || definition.components[i].fields[field][0] === Identifiers.SyncedArrayVariable) {
+          const typeBytes = exports.TypeBytes(definition.components[i].fields[field][2]);
+          if (typeBytes > byteRound) {
+            byteRound = typeBytes;
+          }
+          byteCount += (typeBytes * definition.components[i].fields[field][1]);
+        }
+      }
+      if (definition.components[i].fields[field][0] === Identifiers.FunctionTemplate) {
+        let feed = null;
+        if (definition[definition.components[i].name] != null && definition[definition.components[i].name][field] != null) {
+          feed = definition[definition.components[i].name][field];
+        }
+        let executed = definition.components[i].fields[field][1](feed);
+        if (!exports.Variables.VariableCheck(executed)) {
+          executed = exports.Variables.DynamicVariable(executed);
+        }
+        information[field] = executed[1];
+        combinedEntries.push([componentGenerator, field, executed]);
+      } else {
+        combinedEntries.push([componentGenerator, field, exports.Variables.VariableOverlap(definition[definition.components[i].name], field, Utility.Clone(definition.components[i].fields[field]))]);
+        if (definition[definition.components[i].name] != null) {
+          information[field] = definition[definition.components[i].name][field];
+        } else {
+          information[field] = definition.components[i].fields[field];
+        }
+      }
+    }
+    for (const property in definition.components[i].properties) {
+      if (!exports.Variables.VariableCheck(definition.components[i].properties[property])) {
+        definition.components[i].properties[property] = exports.Variables.DynamicVariable(definition.components[i].properties[property]);
+      } else {
+        if (definition.components[i].properties[property][0] === Identifiers.TypedVariable || definition.components[i].properties[property][0] === Identifiers.SyncedVariable) {
+          const typeBytes = exports.TypeBytes(definition.components[i].properties[property][2]);
+          if (typeBytes > byteRound) {
+            byteRound = typeBytes;
+          }
+          byteCount += typeBytes;
+        } else if (definition.components[i].properties[property][0] === Identifiers.TypedArrayVariable || definition.components[i].properties[property][0] === Identifiers.SyncedArrayVariable) {
+          const typeBytes = exports.TypeBytes(definition.components[i].properties[property][2]);
+          if (typeBytes > byteRound) {
+            byteRound = typeBytes;
+          }
+          byteCount += (typeBytes * definition.components[i].properties[property][1]);
+        }
+      }
+      combinedEntries.push([componentGenerator, property, Utility.Clone(definition.components[i].properties[property])]);
+      information[property] = definition.components[i].properties[property];
+    }
+
+    construct[1][1].push((instance, dataStorage, buffer) => {
+      let referenceData = ReferenceDataBuilder(componentGenerator, dataStorage, buffer, instance.syncedVariableModule);
+      referenceData.configuration = Utility.Clone(definition.components[i].configuration);
+      referenceData.configuration.id = definition.components[i].id;
+      for (let j = 0, length2 = definition.components[i].type.length; j < length2; j++) {
+        Object.defineProperty(instance, definition.components[i].type[j], {
+          configurable: true,
+          enumerable: true,
+          get: () => referenceData,
+          set: (value) => referenceData = value
+        });
+      }
+    });
+    
+    const sharedCache = {};
+    construct[2][2].push((entityId, instance) => {
+      sharedCache[entityId] = {
+        globalCache
+      };
+      if (definition.components[i].compilation != null) {
+        definition.components[i].compilation.apply(sharedCache[entityId], [{instance, construct, information, sharedCache: sharedCache[entityId]}]);
+      }
+    });
+    if (definition.components[i].client != null) {
+      if (definition.components[i].client.triggers != null) {
+        for (const clientsideFunction in definition.components[i].client.triggers) {
+          if (clientsideFunction === "window") {
+            for (const windowFunction in definition.components[i].client.triggers.window) {
+              if (clientMethodIndices.window[windowFunction] == null) {
+                clientMethodIndices.window[windowFunction] = 0;
+              }
+              construct[2][0].push(["triggers.window." + windowFunction, clientMethodIndices.window[windowFunction]++, definition.components[i].client.triggers.window[windowFunction].toString()]);
+            }
+          } else {
+            if (clientMethodIndices[clientsideFunction] == null) {
+              clientMethodIndices[clientsideFunction] = 0;
+            }
+            construct[2][0].push(["triggers." + windowFunction, clientMethodIndices[clientsideFunction]++, definition.components[i].client.triggers[clientsideFunction].toString()]);
+          }
+        }
+      }
+    }
+    for (const trigger in definition.components[i].triggers) {
+      definition.components[i].triggers[trigger].cacheInstance = (cache, entityId) => {
+        cache.sharedCache = sharedCache[entityId];
+        return Utility.Overlap(cache, definition.components[i].methods);
+      }
+      if (construct[2][1][trigger] == null) {
+        construct[2][1][trigger] = [];
+      }
+      construct[2][1][trigger].push(definition.components[i].triggers[trigger]);
+    }
+  }
+  const combinedEntriesLength = combinedEntries.length;
+  const k = Math.max.apply(null, (() => {
+    const x = [];
+    for (let i = 0; i < combinedEntriesLength; i++) {
+      x.push(Math.ceil(Math.log(TotalOrder(combinedEntries[i])) / Math.log(2)));
+    }
+    return x;
+  })());
+  for (let d = 0; d < k; d++) {
+    for (let i = 0, p = 0, b = 1 << d; i < combinedEntriesLength; i++) {
+      if ((TotalOrder(combinedEntries[i]) & b) === 0) {
+        combinedEntries.splice(p++, 0, combinedEntries.splice(i, 1)[0]);
+      }
+    }
+  }
+  byteCount = RoundToNearestBytes(byteCount, byteRound);
+
+  TypedCalculationMemory[0] = 0, TypedCalculationMemory[1] = 0, TypedCalculationMemory[2] = 1, TypedCalculationMemory[3] = 0;
+  let currentType = "";
+  for (let i = 0, length = combinedEntries.length; i < length; i++) {
+    if (combinedEntries[i][2][0] === Identifiers.TypedVariable || combinedEntries[i][2][0] === Identifiers.TypedArrayVariable || combinedEntries[i][2][0] === Identifiers.SyncedVariable || combinedEntries[i][2][0] === Identifiers.SyncedArrayVariable) {
+      if (combinedEntries[i][2][2] !== currentType) {
+        if (currentType !== "") {
+          TypedCalculationMemory[2] += 1;
+        }
+        TypedCalculationMemory[3] = 0;
+        currentType = combinedEntries[i][2][2];
+        //construct[1][0].push([currentType, (() => {
+        switch (currentType) {
+          case "biguint64": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 8); break;
+          case "bigint64": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 8); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 8);
+          case "float64": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 8); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 8);
+          case "float32": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 4); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 4);
+          case "uint32": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 4); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 4);
+          case "int32": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 4); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 4);
+          case "uint16": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 2); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 2);
+          case "int16": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 2); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 2);
+          case "uint8": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 1); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 1);
+          case "int8": TypedCalculationMemory[0] = RoundToNearestBytes(TypedCalculationMemory[0], 1); break; //return RoundToNearestBytes(TypedCalculationMemory[1], 1);
+        }
+        TypedCalculationMemory[1] = TypedCalculationMemory[0];
+        construct[1][0].push([currentType, TypedCalculationMemory[1]]);
+
+        //})()]);
+      }
+      const array = TypedCalculationMemory[2], index = TypedCalculationMemory[3];
+      if (combinedEntries[i][2][0] === Identifiers.SyncedVariable || combinedEntries[i][2][0] === Identifiers.SyncedArrayVariable) {
+        if (combinedEntries[i][2][0] === Identifiers.SyncedArrayVariable) {
+          combinedEntries[i][0].push([combinedEntries[i][1], 0b0111, currentType, TypedCalculationMemory[0], combinedEntries[i][2][1]]);
+        } else {
+          combinedEntries[i][0].push([combinedEntries[i][1], 0b0101, array, index, combinedEntries[i][2][1]]);
+        }
+      } else {
+        if (combinedEntries[i][2][0] === Identifiers.TypedArrayVariable) {
+          combinedEntries[i][0].push([combinedEntries[i][1], 0b0011, currentType, TypedCalculationMemory[0], combinedEntries[i][2][1]]);
+        } else {
+          combinedEntries[i][0].push([combinedEntries[i][1], 0b0001, array, index, combinedEntries[i][2][1]]);
+        }
+      }
+      if (combinedEntries[i][2][0] === Identifiers.TypedArrayVariable || combinedEntries[i][2][0] === Identifiers.SyncedArrayVariable) {
+        //for (let j = index; j < index + combinedEntries[i][2][1]; j++) {
+        //  dataStorage[array][j] = 0;
+        //}
+        TypedCalculationMemory[3] += combinedEntries[i][2][1];
+        TypedCalculationMemory[0] += exports.TypeBytes(currentType) * combinedEntries[i][2][1];
+      } else {
+        //dataStorage[array][index] = combinedEntries[i][2][1];
+        TypedCalculationMemory[3] += 1;
+        TypedCalculationMemory[0] += exports.TypeBytes(currentType);
+      }
+    } else if (combinedEntries[i][2][0] === Identifiers.DynamicVariable) {
+      const dynamicIndex = construct[1][0][0].length;
+      construct[1][0][0].push(combinedEntries[i][2][1]);
+      combinedEntries[i][0].push([combinedEntries[i][1], 0b0000, 0, dynamicIndex]);
+    }
+  }
+
+  return construct;
+  /*
+  let instance = null;
   const construct = [
     {}, // ENTITY INFO
     {}, // TRIGGERS
     [], // RENDERBLOCKS
     [], // REFERENCE DATA
     [[], [], null, []], // CLIENTSIDE
-    [] // ZONES
+    [], // ZONES
+    (definition) => instance = definition // INSTANCE
   ],
   dataStorage = [[]],
   combinedEntries = [];
@@ -166,8 +544,8 @@ exports.Compile = (components, definition, globalCache, zones) => {
       Object.defineProperty(construct[0], definition.components[i].type[j], {
         configurable: true,
         enumerable: true,
-        get: () => construct[3][referenceIndex],
-        set: (value) => construct[3][referenceIndex] = value
+        get: () => instance[3][referenceIndex],
+        set: (value) => instance[3][referenceIndex] = value
       });
     }
     for (const field in definition.components[i].fields) {
@@ -322,20 +700,20 @@ exports.Compile = (components, definition, globalCache, zones) => {
         construct[4][1].push((value, INITILIZATIONMODE, isArray = false, arrayIndex = null) => {
           if (INITILIZATIONMODE) {
             if (combinedEntries[i][2][0] !== Identifiers.SyncedArrayVariable) {
-              construct[4][2](false, false, syncedVariableId, null, dataStorage[array][index], combinedEntries[i][1], combinedEntries[i][2][4]);
+              instance[4][2](false, false, syncedVariableId, null, dataStorage[array][index], combinedEntries[i][1], combinedEntries[i][2][4]);
             } else {
-              construct[4][2](false, true, syncedVariableId, null, typedArray, combinedEntries[i][1], combinedEntries[i][2][4]);
+              instance[4][2](false, true, syncedVariableId, null, typedArray, combinedEntries[i][1], combinedEntries[i][2][4]);
             }
           } else {
             if (isArray) {
               typedArray[arrayIndex] = value;
               if (combinedEntries[i][2][3]) {
-                combinedEntries[i][2][3].apply(construct[3][combinedEntries[i][0]].sharedCache, [value, arrayIndex, construct[3][combinedEntries[i][0]]]);
+                combinedEntries[i][2][3].apply(instance[3][combinedEntries[i][0]].sharedCache, [value, arrayIndex, instance[3][combinedEntries[i][0]]]);
               }
             } else {
               dataStorage[array][index] = value;
               if (combinedEntries[i][2][3]) {
-                combinedEntries[i][2][3].apply(construct[3][combinedEntries[i][0]].sharedCache, [value, construct[3][combinedEntries[i][0]]]);
+                combinedEntries[i][2][3].apply(instance[3][combinedEntries[i][0]].sharedCache, [value, instance[3][combinedEntries[i][0]]]);
               }
             }
           }
@@ -348,7 +726,7 @@ exports.Compile = (components, definition, globalCache, zones) => {
             get: () => dataStorage[array][index],
             set: (value) => {
               if (!Utility.Equals(dataStorage[array][index], value)) {
-                construct[4][2](true, false, syncedVariableId, null, value);
+                instance[4][2](true, false, syncedVariableId, null, value);
                 return dataStorage[array][index] = value;
               } else {
                 return dataStorage[array][index];
@@ -366,7 +744,7 @@ exports.Compile = (components, definition, globalCache, zones) => {
             },
             set: (target, property, value) => {
               if (!Utility.Equals(target[property], value)) {
-                construct[4][2](true, true, syncedVariableId, property, value);
+                instance[4][2](true, true, syncedVariableId, property, value);
                 return Reflect.set(target, property, value);
               } else {
                 return true;
@@ -422,6 +800,7 @@ exports.Compile = (components, definition, globalCache, zones) => {
     construct[5].push(definition.zones[i]);
   }
   return construct;
+  */
   /*
   const construct = [
     {}, // ENTITY INFO
