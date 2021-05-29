@@ -19,7 +19,7 @@
     "nanotimer": "^0.3.15",
     "nodemon": "^1.19.2",
     "typewiz-node": "^1.2.4",
-    "ws": "^7.1.0",
+    "ws": "^7.4.6",
     "wstunnel": "^1.3.1"
   },
   "optionalDependencies": {
