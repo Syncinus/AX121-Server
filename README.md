@@ -1,6 +1,8 @@
 # AX121-Server
 The AX121 server project
 
+This is only really kept because for some reason GitHub decided this half baked project was worthy of the code vault.
+
 ## Guide to run:
 Download the repository, and then `npm run start` to load up the
 game onto your local machines port 8080, after that go to the client
